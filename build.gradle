@@ -1,0 +1,104 @@
+plugins {
+    id 'java-library'  // 프로젝트를 자바 라이브러리로 설정 (api 키워드 사용 가능)
+    id 'maven-publish' // 빌드된 아티팩트를 Maven 저장소에 배포하기 위한 플러그인
+    id 'org.springframework.boot' version '3.5.12'
+    id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'org.ticketing'
+version = '2.0-SNAPSHOT'
+
+java {
+    toolchain { languageVersion = JavaLanguageVersion.of(17) }
+}
+
+bootJar { enabled = false } // 실행 가능한 jar 생성 비활성화 (라이브러리이므로 필요 없음)
+jar {
+    enabled = true
+    archiveClassifier.set('') // 일반 jar 생성
+}
+
+repositories {
+    mavenCentral()
+    maven { url 'https://repo.spring.io/milestone' } // 스프링 부트 마일스톤 버전 사용을 위한 저장소
+}
+
+ext {
+    set('springCloudVersion', "2025.0.1")
+}
+
+dependencies {
+    api 'org.springframework.boot:spring-boot-starter-web'
+    api 'org.springframework.boot:spring-boot-starter-validation'
+    api 'org.springframework.boot:spring-boot-starter-data-jpa'
+    api 'org.springframework.boot:spring-boot-starter-security'
+    api 'org.springframework.kafka:spring-kafka'
+    api 'org.springframework.cloud:spring-cloud-starter-config'
+    api 'org.springframework.cloud:spring-cloud-starter-loadbalancer'
+    api 'org.springframework.cloud:spring-cloud-starter-netflix-eureka-client'
+    api 'org.springframework.cloud:spring-cloud-starter-openfeign'
+
+    api 'org.springframework.boot:spring-boot-starter-aop'
+    api "io.github.resilience4j:resilience4j-spring-boot3:2.2.0"
+    api 'io.github.resilience4j:resilience4j-circuitbreaker'
+    api 'io.github.resilience4j:resilience4j-retry'
+
+    api 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.16'
+
+    api "com.github.danielwegener:logback-kafka-appender:0.2.0-RC2"
+    api 'net.logstash.logback:logstash-logback-encoder:7.4'
+
+    // Zipkin
+    api 'io.micrometer:micrometer-tracing-bridge-brave'
+    api 'io.zipkin.reporter2:zipkin-reporter-brave'
+    api 'io.github.openfeign:feign-micrometer'
+
+    api 'com.querydsl:querydsl-jpa:5.1.0:jakarta'
+    annotationProcessor 'com.querydsl:querydsl-apt:5.1.0:jakarta'
+    annotationProcessor 'jakarta.annotation:jakarta.annotation-api'
+    annotationProcessor 'jakarta.persistence:jakarta.persistence-api'
+
+    compileOnly 'org.projectlombok:lombok' // 원래 각 서비스에서 compileOnly 로 추가해야함
+    annotationProcessor 'org.projectlombok:lombok'
+}
+
+
+publishing {
+    publications {
+        gpr(MavenPublication) {
+            from components.java
+            artifactId = 'common'
+        }
+    }
+    repositories {
+        maven {
+            name = "GitHubPackages" // 저장소 별칭
+            url = uri("https://maven.pkg.github.com/3s-ticketing/common-module") // GitHub Packages 저장소 주소
+            credentials {
+                username = System.getenv("GPR_USER") // 환경 변수에서 GitHub 사용자 ID
+                password = System.getenv("GPR_TOKEN") // 환경 변수에서 GitHub Personal Access Token(Classic) 로드
+            }
+        }
+    }
+}
+
+dependencyManagement {
+    imports {
+        mavenBom "org.springframework.cloud:spring-cloud-dependencies:${springCloudVersion}"
+    }
+}
+
+// QueryDSL Q클래스 생성 경로 설정
+def querydslDir = layout.buildDirectory.dir("querydsl").get().asFile
+
+sourceSets {
+    main.java.srcDirs += [querydslDir]
+}
+
+tasks.withType(JavaCompile) {
+    options.getGeneratedSourceOutputDirectory().set(file(querydslDir))
+}
+
+clean.doLast {
+    file(querydslDir).deleteDir()
+}
