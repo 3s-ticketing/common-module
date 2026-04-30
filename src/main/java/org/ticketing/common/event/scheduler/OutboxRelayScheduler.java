@@ -37,7 +37,8 @@ public class OutboxRelayScheduler {
         for (Outbox outbox : items) {
             UUID targetId = outbox.getId();
             try {
-                kafkaTemplate.send(outbox.getEventType(), outbox.getDomainId(), outbox.getPayload())
+                // 파티션 키: partitionKey 가 명시돼 있으면 그 값, 아니면 domainId
+                kafkaTemplate.send(outbox.getEventType(), outbox.resolveKafkaKey(), outbox.getPayload())
                         .whenComplete((result, e) -> updateStatus(targetId, e == null));
             } catch (Exception e) {
                 updateStatus(targetId, false);

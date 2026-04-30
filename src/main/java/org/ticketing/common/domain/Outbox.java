@@ -57,6 +57,16 @@ public class Outbox extends BaseEntity {
     @Builder.Default
     protected int retryCount = 0; // 재시도 카운트
 
+    /**
+     * Kafka 파티션 키. nullable.
+     *
+     * <p>null 이면 {@link #resolveKafkaKey()} 가 {@link #domainId} 로 fallback 한다.
+     * 다른 도메인 단위로 파티션 순서 보장이 필요한 경우에만 명시 (예: reservation 이벤트를
+     * matchId 로 파티셔닝하여 같은 경기 이벤트의 순서 보장).
+     */
+    @Column(length = 100)
+    protected String partitionKey;
+
     public void complete() {
         this.status = OutboxStatus.PROCESSED;
     }
@@ -66,4 +76,11 @@ public class Outbox extends BaseEntity {
         this.retryCount++;
     }
 
+    /**
+     * Kafka 발행 시 사용할 파티션 키.
+     * {@link #partitionKey} 가 명시돼 있으면 그 값을, 아니면 {@link #domainId} 를 반환한다.
+     */
+    public String resolveKafkaKey() {
+        return partitionKey != null ? partitionKey : domainId;
+    }
 }

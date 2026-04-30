@@ -44,6 +44,7 @@ public class OutboxEventListener {
                     .domainId(event.domainId())
                     .eventType(event.eventType())
                     .payload(jsonPayload)
+                    .partitionKey(event.partitionKey()) // null 이면 publish 시 domainId 로 fallback
                     .status(OutboxStatus.PENDING) // 메세지 전송전 단계는 PENDING, 전송 완료 후는 PROCESSED호 변경됨
                     .build();
             outboxRepository.save(outbox);
@@ -58,9 +59,10 @@ public class OutboxEventListener {
     public void publish(OutboxEvent event) {
         outboxRepository.findByCorrelationId(event.correlationId()).ifPresent(outbox -> {
             // Kafka 메시지에 ID 헤더 추가
+            // 파티션 키: partitionKey 가 명시돼 있으면 그 값, 아니면 domainId
             ProducerRecord<String, Object> record = new ProducerRecord<>(
                     outbox.getEventType(),
-                    outbox.getDomainId(),
+                    outbox.resolveKafkaKey(),
                     outbox.getPayload()
             );
             record.headers().add("message_id", outbox.getId().toString().getBytes());
@@ -98,7 +100,7 @@ public class OutboxEventListener {
 
             if (outbox.getRetryCount() >= MAX_RETRY_COUNT) {
                 log.error("최대 재시도 횟수 초과(Total: {}). DLT로 격리합니다: {}", outbox.getRetryCount(), event.correlationId());
-                sendToDlt(event, outbox.getPayload());
+                sendToDlt(outbox);
             } else {
                 log.warn("메세지 전송 실패 (재시도 예정 {}/{}): {}", outbox.getRetryCount(), MAX_RETRY_COUNT,
                         event.correlationId());
@@ -106,21 +108,21 @@ public class OutboxEventListener {
         });
     }
 
-    // DLT 전송
-    private void sendToDlt(OutboxEvent event, String payload) {
-        String dltTopic = event.eventType() + ".DLT";
+    // DLT 전송 — 파티션 키는 원 메시지와 동일하게 resolveKafkaKey() 사용
+    private void sendToDlt(Outbox outbox) {
+        String dltTopic = outbox.getEventType() + ".DLT";
         try {
             // DLT 전송은 재시도 없이 1회만 시도, 실패 시 에러 로그만 기록
-            kafkaTemplate.send(dltTopic, event.domainId(), payload)
+            kafkaTemplate.send(dltTopic, outbox.resolveKafkaKey(), outbox.getPayload())
                     .whenComplete((res, e) -> {
                         if (e != null) {
-                            log.error("DLT 전송 실패: {}", event.correlationId(), e);
+                            log.error("DLT 전송 실패: {}", outbox.getCorrelationId(), e);
                         } else {
-                            log.info("DLT 전송 성공: {}", event.correlationId());
+                            log.info("DLT 전송 성공: {}", outbox.getCorrelationId());
                         }
                     });
         } catch (Exception e) {
-            log.error("DLT 전송 중 예외 발생: {}", event.correlationId(), e);
+            log.error("DLT 전송 중 예외 발생: {}", outbox.getCorrelationId(), e);
         }
     }
 }
